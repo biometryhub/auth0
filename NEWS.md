@@ -1,5 +1,16 @@
-# auth0 0.1.2
+# auth0 0.2.1
 
+- Major Bugfix: Re-add `remote_url` option into `_auth0.yml` file and add a new `auth0_local` option (Issue #45, PR #47).
+
+# auth0 0.2.0
+
+- Support bookmarking (server side) (PR #38).
+- Export `auth0_ui()` and `auth0_server()` functions to enable `ui.R`/`server.R` support (Issue #5).
+- Export `auth0_find_config_file()`, `auth0_config()` and `auth0_info()` functions to ease debugging.
+
+# auth0 0.1.2
+  
+- Add `auth0_credentials` to user session data (Issue #39).
 - (breaking change) change `login_info` to `auth0_info` in the user session data (Issue #19).
 - Option to ignore auth0 and work as a normal shiny app, to save developing time (Issue #26).
 - Examples for different login types (google/facebook, database etc, Issue #23).

@@ -1,39 +1,93 @@
+#' Modifies ui/server objects to authenticate using Auth0.
+#'
+#' These functions can be used in a ui.R/server.R framework, modifying the
+#'   shiny objects to authenticate using Auth0 service with no pain.
+#'
+#' @param ui `shiny.tag.list` object to generate the user interface.
+#'
+#' @name ui-server
+#'
+#' @seealso [auth0_info].
+#'
+#' @examples
+#' \donttest{
+#' # first, create the yml file using use_auth0() function
+#'
+#' # ui.R file
+#' library(shiny)
+#' library(auth0)
+#' auth0_ui(fluidPage(logoutButton()))
+#'
+#' # server.R file
+#' library(auth0)
+#' auth0_server(function(input, output, session) {})
+#'
+#' # console
+#' options(shiny.port = 8080)
+#' shiny::runApp()
+#'
+#' }
+#' @export
 auth0_ui <- function(ui, info) {
+  if (missing(info)) info <- auth0_info()
   function(req) {
     verify <- has_auth_code(shiny::parseQueryString(req$QUERY_STRING), info$state)
     if (!verify) {
       if (grepl("error=unauthorized", req$QUERY_STRING)) {
         redirect <- sprintf("location.replace(\"%s\");", logout_url())
-        htmltools::tags$script(htmltools::HTML(redirect))
+        shiny::tags$script(shiny::HTML(redirect))
       } else {
+
+        params <- shiny::parseQueryString(req$QUERY_STRING)
+        params$code <- NULL
+        params$state <- NULL
+
+        query <- paste0("/?", paste(
+          mapply(paste, names(params), params, MoreArgs = list(sep = "=")),
+          collapse = "&"))
+        if (!is.null(info$remote_url) && info$remote_url != "" && !getOption("auth0_local")) {
+          redirect_uri <- info$remote_url
+        } else {
+          if (grepl("127.0.0.1", req$HTTP_HOST)) {
+            redirect_uri <- paste0("http://", gsub("127.0.0.1", "localhost", req$HTTP_HOST, query))
+          } else {
+            redirect_uri <- paste0("http://", req$HTTP_HOST, query)
+          }
+        }
+        redirect_uri <<- redirect_uri
+
+        query_extra <- if(is.null(info$audience)) list() else list(audience=info$audience)
         url <- httr::oauth2.0_authorize_url(
-          info$api, info$app, scope = info$scope, state = info$state
+          info$api, info$app(redirect_uri), scope = info$scope, state = info$state,
+          query_extra=query_extra
         )
         redirect <- sprintf("location.replace(\"%s\");", url)
-        htmltools::tags$script(htmltools::HTML(redirect))
+        shiny::tags$script(shiny::HTML(redirect))
       }
     } else {
-      ui
+      if (is.function(ui)) {
+        ui(req)
+      } else {
+        ui
+      }
     }
   }
 }
 
+#' @rdname ui-server
+#'
+#' @param server the shiny server function.
+#' @param info object returned from [auth0_info]. If not informed,
+#'   will try to find the `_auth0.yml` and create it automatically.
+#'
+#' @export
 auth0_server <- function(server, info) {
+  if (missing(info)) info <- auth0_info()
   function(input, output, session) {
     shiny::isolate(auth0_server_verify(session, info$app, info$api, info$state))
     shiny::observeEvent(input[["._auth0logout_"]], logout())
     server(input, output, session)
   }
-}
-
-find_config_file <- function() {
-  config_file <- getOption("auth0_config_file")
-
-  if (is.null(config_file)) {
-    config_file <- "./_auth0.yml"
-  }
-
-  config_file
 }
 
 #' Create a Shiny app object with Auth0 Authentication
@@ -44,6 +98,7 @@ find_config_file <- function() {
 #' @param ui an ordinary UI object to create shiny apps.
 #' @param server an ordinary server object to create shiny apps.
 #' @param config_file path to YAML configuration file.
+#' @param ... Other arguments passed on to [shiny::shinyApp()].
 #'
 #' @details
 #' You can also use a diferent configuration file by setting the
@@ -58,32 +113,17 @@ find_config_file <- function() {
 #'   disable auth0 temporarily.
 #'
 #' @export
-shinyAppAuth0 <- function(ui, server, config_file = NULL) {
+shinyAppAuth0 <- function(ui, server, config_file = NULL, ...) {
 
   disable <- getOption("auth0_disable")
   if (!is.null(disable) && disable) {
     shiny::shinyApp(ui, server)
   } else {
     if (is.null(config_file)) {
-      config_file <- find_config_file()
+      config_file <- auth0_find_config_file()
     }
-    else {
-      options(auth0_config_file = config_file)
-    }
-
-    config <- auth0_config()
-    info <- auth0_info(config)
-    if (interactive()) {
-      p <- config$shiny_config$local_url
-      re <- regexpr("(?<=:)([0-9]+)", p, perl = TRUE)
-      port <- as.numeric(regmatches(p, re))
-      shiny::shinyApp(auth0_ui(ui, info),
-                      auth0_server(server, info),
-                      options = list(port = port))
-    } else {
-      shiny::shinyApp(auth0_ui(ui, info),
-                      auth0_server(server, info))
-    }
+    info <- auth0_info(config_file)
+    shiny::shinyApp(auth0_ui(ui, info), auth0_server(server, info), ...)
   }
 }
 
@@ -154,4 +194,3 @@ auth0_logout_url <- function(config_file = NULL, redirect_js = TRUE) {
        "See `?logoutButton()` to add a logout button in auth0 apps.")
 
 }
-
